@@ -31,8 +31,8 @@ let currentWordIdx = 0;
 let wordTimer      = 0;
 const WORD_HOLD_MS = 3000; // ms each word stays before cycling
 let analyzing      = false;
-const ANALYZE_EVERY = 4000;
-let lastAnalyzeTime = -4000;
+const ANALYZE_EVERY = 5000;
+let lastAnalyzeTime = -5000;
 
 // FaceMesh landmark indices
 const MOUTH_TOP    = 13;  // upper inner lip
@@ -167,7 +167,7 @@ function draw() {
       wordTimer = millis();
       currentWordIdx = (currentWordIdx + 1) % wordList.length;
     }
-    const fontSize = max(8, sunScale * 9);
+    const fontSize = max(2, sunScale * 4);
     textCtx.font         = `${fontSize}px monospace`;
     textCtx.fillStyle    = 'rgba(0,0,0,0.85)';
     textCtx.textAlign    = 'center';
@@ -214,11 +214,32 @@ async function analyzeFrame() {
   if (!capture) return;
   analyzing = true;
 
-  // Draw video element into a temp canvas to get base64
+  // Crop to the person using faceMesh bounds if a face is detected
+  let cropX = 0, cropY = 0, cropW = 320, cropH = 240;
+  if (faces.length > 0) {
+    const kp = faces[0].keypoints;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of kp) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const fw = maxX - minX;
+    const fh = maxY - minY;
+    // Pad generously — especially downward to include clothing/upper body
+    cropX = Math.max(0,   minX - fw * 0.4);
+    cropY = Math.max(0,   minY - fh * 0.4);
+    cropW = Math.min(320, fw * 1.8);
+    cropH = Math.min(240, fh * 2.2); // taller crop to catch upper body
+    cropW = Math.min(cropW, 320 - cropX);
+    cropH = Math.min(cropH, 240 - cropY);
+  }
+
   const tmp = document.createElement('canvas');
-  tmp.width = 320; tmp.height = 240;
-  tmp.getContext('2d').drawImage(capture.elt, 0, 0, 320, 240);
-  const base64 = tmp.toDataURL('image/jpeg', 0.7).split(',')[1];
+  tmp.width = cropW; tmp.height = cropH;
+  tmp.getContext('2d').drawImage(capture.elt, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  const base64 = tmp.toDataURL('image/jpeg', 0.8).split(',')[1];
 
   try {
     const res  = await fetch('/api/analyze', {

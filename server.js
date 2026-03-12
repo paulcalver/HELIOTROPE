@@ -30,10 +30,21 @@ app.post('/api/analyze', async (req, res) => {
     const r = data.responses?.[0];
     if (!r) return res.json({ words: [] });
 
+    // Anatomy/generic face terms — not interesting for the advertising inference concept
+    const BLOCKLIST = new Set([
+      'face', 'facial hair', 'hair', 'chin', 'cheek', 'forehead', 'nose', 'lip',
+      'eyebrow', 'eyelash', 'eye', 'ear', 'neck', 'beard', 'moustache', 'skin',
+      'head', 'jaw', 'mouth', 'tooth', 'teeth', 'wrinkle', 'person', 'human',
+      'man', 'woman', 'people', 'photography', 'photo', 'stock photography',
+      'portrait', 'selfie', 'close-up', 'black and white',
+    ]);
+
     const words = [];
 
-    // Scene / object labels — what Google categorises in the frame
-    r.labelAnnotations?.forEach(l => words.push(l.description.toLowerCase()));
+    // Web entities first — brand/topic associations are the point of the piece
+    r.webDetection?.webEntities
+      ?.filter(e => e.description && !BLOCKLIST.has(e.description.toLowerCase()))
+      .forEach(e => words.push(e.description));
 
     // Inferred emotions from face analysis
     if (r.faceAnnotations?.[0]) {
@@ -44,12 +55,12 @@ app.post('/api/analyze', async (req, res) => {
       }
     }
 
-    // Web entities — what Google thinks this image matches to across the web
-    r.webDetection?.webEntities
-      ?.filter(e => e.description)
-      .forEach(e => words.push(e.description.toLowerCase()));
+    // Scene/context labels — filtered to remove anatomy
+    r.labelAnnotations
+      ?.filter(l => !BLOCKLIST.has(l.description.toLowerCase()))
+      .forEach(l => words.push(l.description));
 
-    res.json({ words });
+    res.json({ words: words.slice(0, 12) }); // cap to avoid word soup
 
   } catch (err) {
     console.error('Vision API error:', err);
