@@ -1,4 +1,4 @@
-let points = 10000;
+let points = 20000;
 let circles = []; // Store circle data
 let circleColor = '#ffb700'; // Bright yellow color for the sun
 
@@ -16,8 +16,8 @@ let graphics;
 let grainTime = 0.001; // Start at small non-zero to avoid potential shader issues with time=0
 const grainSpeed = 0.000001; // Speed of grain animation (independent of timeSpeed)
 
-let blurAmount = 5.0; // Strength of the blur effect
-let grainAmount = 0.1; // Strength of the grain effect
+let blurAmount = 10.0; // Strength of the blur effect
+let grainAmount = 0.2; // Strength of the grain effect
 
 // FaceMesh
 let faceMesh;
@@ -32,7 +32,6 @@ const RIGHT_EYE    = 263; // right eye outer corner
 // Sun controls (driven by face)
 let sunScale        = 1.0; // Scales the spread of the particle cloud (mouth openness)
 let vibrationEnergy = 1.0; // Multiplies oscillation amplitude (face proximity)
-let sunOffsetX      = 0.0; // Horizontal shift of sun center (head tilt)
 
 function preload() {
   // Load shader files - p5.js 2.0 uses promises internally
@@ -83,24 +82,19 @@ function draw() {
   if (faces.length > 0) {
     const kp = faces[0].keypoints;
 
-    // Mouth openness → sunScale (open mouth = bigger, more spread-out sun)
+    // Mouth openness → vibrationEnergy (open mouth = more energetic)
     const mouthOpen = dist(kp[MOUTH_TOP].x, kp[MOUTH_TOP].y,
                            kp[MOUTH_BOTTOM].x, kp[MOUTH_BOTTOM].y);
-    sunScale = constrain(map(mouthOpen, 2, 30, 0.5, 12), 0.5, 12);
+    vibrationEnergy = constrain(map(mouthOpen, 2, 30, 1, 4.0), 1, 4.0);
 
-    // Face proximity (eye-to-eye width) → vibrationEnergy (closer = more energetic)
+    // Face proximity (eye-to-eye width) → sunScale (closer = bigger sun)
     const faceWidth = abs(kp[RIGHT_EYE].x - kp[LEFT_EYE].x);
-    vibrationEnergy = constrain(map(faceWidth, 30, 150, 0.2, 4.0), 0.2, 4.0);
+    sunScale = constrain(map(faceWidth, 30, 150, 1, 20), 1, 20);
 
-    // Head tilt angle → sunOffsetX (tilt left = sun moves left, tilt right = sun moves right)
-    const tiltAngle = atan2(kp[RIGHT_EYE].y - kp[LEFT_EYE].y,
-                            kp[RIGHT_EYE].x - kp[LEFT_EYE].x);
-    const targetOffsetX = map(tiltAngle, -PI / 6, PI / 6, -width / 3, width / 3, true);
-    sunOffsetX = lerp(sunOffsetX, targetOffsetX, 0.08); // smooth follow
   }
 
   // Draw to graphics buffer first
-  graphics.background(0, 0, 0);
+  graphics.background(2);
 
   // Precompute once per frame — trig addition formula avoids 50k cos/sin calls
   // cos(baseAngle + offset) = cosBase*cosOffset - sinBase*sinOffset
@@ -113,7 +107,7 @@ function draw() {
   for (let circle of circles) {
     graphics.fill(sunR, sunG, sunB, circle.alpha);
 
-    const scaledX = cx + sunOffsetX + circle.dx * sunScale;
+    const scaledX = cx + circle.dx * sunScale;
     const scaledY = cy + circle.dy * sunScale;
 
     const jitter = circle.speed * energyScale;
@@ -158,7 +152,7 @@ function fuzzyPoints() {
       y: y,
       dx: x - centerX,           // displacement from center — scaled by sunScale each frame
       dy: y - centerY,
-      size: map(distance, 0, 300, 8, 0),
+      size: map(distance, 0, 300, 12, 0),
       alpha: map(distance, 50, 300, 255, 20, true),
       speed: 3,
       cosOffset: cos(offset),     // precomputed — used in trig addition formula
