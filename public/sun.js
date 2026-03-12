@@ -11,17 +11,28 @@ let sunR, sunG, sunB;
 // Rendering
 let blurShader;
 let graphics;
+let textOverlay, textCtx; // native HTML canvas overlay — drawn on top of WEBGL, no compositing issues
 
 // Grain animation
 let grainTime = 0.001; // Start at small non-zero to avoid potential shader issues with time=0
 const grainSpeed = 0.000001; // Speed of grain animation (independent of timeSpeed)
-
-let blurAmount = 10.0; // Strength of the blur effect
+  
+let blurAmount = 8.0; // Strength of the blur effect
 let grainAmount = 0.2; // Strength of the grain effect
 
 // FaceMesh
 let faceMesh;
 let faces = [];
+let capture; // global so analyzeFrame() can grab a frame
+
+// Vision API words
+let wordList       = [];   // flat list of strings from the API
+let currentWordIdx = 0;
+let wordTimer      = 0;
+const WORD_HOLD_MS = 3000; // ms each word stays before cycling
+let analyzing      = false;
+const ANALYZE_EVERY = 4000;
+let lastAnalyzeTime = -4000;
 
 // FaceMesh landmark indices
 const MOUTH_TOP    = 13;  // upper inner lip
@@ -48,8 +59,17 @@ function setup() {
   noStroke();
   frameRate(60);
 
-  graphics = createGraphics(windowWidth, windowHeight); // 2D offscreen buffer to draw into
+  graphics = createGraphics(windowWidth, windowHeight); // 2D offscreen buffer — goes through shader
   graphics.noStroke();
+
+  // Native HTML canvas overlay — sits on top of the p5 WEBGL canvas via CSS
+  textOverlay = document.createElement('canvas');
+  textOverlay.width  = windowWidth;
+  textOverlay.height = windowHeight;
+  textOverlay.style.cssText = 'position:fixed;top:0;left:0;pointer-events:none;';
+  document.body.appendChild(textOverlay);
+  textCtx = textOverlay.getContext('2d');
+  textCtx.font = '13px monospace';
 
   // Parse circleColor once so the draw loop uses fill(r, g, b, a) directly
   const parsed = color(circleColor);
@@ -61,7 +81,7 @@ function setup() {
   cy = windowHeight * 0.5;
 
   // Start faceMesh only once the camera stream is actually live
-  let capture = createCapture(VIDEO, () => {
+  capture = createCapture(VIDEO, () => {
     faceMesh = ml5.faceMesh({ maxFaces: 1, flipped: true }, () => {
       faceMesh.detectStart(capture, results => faces = results);
     });
@@ -77,6 +97,12 @@ function draw() {
 
   // Update grain animation (continuous, smooth)
   grainTime += grainSpeed;
+
+  // Trigger Vision API analysis on interval
+  if (!analyzing && millis() - lastAnalyzeTime > ANALYZE_EVERY) {
+    lastAnalyzeTime = millis();
+    analyzeFrame();
+  }
 
   // --- FaceMesh mappings ---
   if (faces.length > 0) {
@@ -117,7 +143,7 @@ function draw() {
     graphics.rect(circle.x, circle.y, circle.size, circle.size);
   }
 
-  // Now apply shader to display the graphics buffer
+  // Apply shader to particles buffer
   if (blurShader) {
     shader(blurShader);
     blurShader.setUniform('tex0', graphics);
@@ -125,15 +151,28 @@ function draw() {
     blurShader.setUniform('blurAmount', blurAmount);
     blurShader.setUniform('grainAmount', grainAmount);
     blurShader.setUniform('time', grainTime);
-
-    // Unit quad — vertex shader maps [0,1] coords to NDC fullscreen
     rect(0, 0, 1, 1);
   } else {
-    // Fallback: render without shader
     push();
     translate(-width / 2, -height / 2);
     image(graphics, 0, 0);
     pop();
+  }
+
+  // Draw single centered word — scales with sun, black, no shader effects
+  textCtx.clearRect(0, 0, textOverlay.width, textOverlay.height);
+  if (wordList.length > 0) {
+    // Cycle to next word on timer
+    if (millis() - wordTimer > WORD_HOLD_MS) {
+      wordTimer = millis();
+      currentWordIdx = (currentWordIdx + 1) % wordList.length;
+    }
+    const fontSize = max(8, sunScale * 9);
+    textCtx.font         = `${fontSize}px monospace`;
+    textCtx.fillStyle    = 'rgba(0,0,0,0.85)';
+    textCtx.textAlign    = 'center';
+    textCtx.textBaseline = 'middle';
+    textCtx.fillText(wordList[currentWordIdx], cx, cy);
   }
 }
 
@@ -163,6 +202,41 @@ function fuzzyPoints() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+  graphics.resizeCanvas(windowWidth, windowHeight);
+  textOverlay.width  = windowWidth;
+  textOverlay.height = windowHeight;
+  textCtx.font = '13px monospace'; // font resets after canvas resize
   cx = windowWidth * 0.5;
   cy = windowHeight * 0.5;
+}
+
+async function analyzeFrame() {
+  if (!capture) return;
+  analyzing = true;
+
+  // Draw video element into a temp canvas to get base64
+  const tmp = document.createElement('canvas');
+  tmp.width = 320; tmp.height = 240;
+  tmp.getContext('2d').drawImage(capture.elt, 0, 0, 320, 240);
+  const base64 = tmp.toDataURL('image/jpeg', 0.7).split(',')[1];
+
+  try {
+    const res  = await fetch('/api/analyze', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ image: base64 })
+    });
+    const { words } = await res.json();
+    if (words && words.length) spawnWords(words);
+  } catch (e) {
+    console.warn('Vision API:', e);
+  }
+
+  analyzing = false;
+}
+
+function spawnWords(words) {
+  wordList       = words;
+  currentWordIdx = 0;
+  wordTimer      = millis();
 }
