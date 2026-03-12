@@ -11,16 +11,18 @@ uniform float blurAmount; // Blur strength multiplier
 uniform float grainAmount; // Grain intensity (0.0 - 1.0)
 uniform float time; // Time for animating grain
 
-// High quality noise function
-float random(vec2 co) {
-  return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
-}
-
-// Film grain function
-float grain(vec2 uv, float t) {
-  // Animate grain by adding time to UV coordinates
-  // This creates evolving grain patterns over time
-  return random(uv + vec2(t * 0.1, t * 0.13));
+// Film grain using pixel coordinates + multiply-add-fract hash.
+// Avoids sin()-based hashes which produce periodic banding at high intensities.
+float grain(float t) {
+  // Start from integer pixel coords — well-separated inputs = no coherent structure
+  vec2 p = floor(gl_FragCoord.xy);
+  // Shift per frame using two incommensurable primes so x/y drift independently
+  p.x += fract(t * 127.1) * 3000.0;
+  p.y += fract(t * 311.7) * 3000.0;
+  // Hash: no trig, no periodicity
+  p = fract(p * vec2(0.1031, 0.1030));
+  p += dot(p, p.yx + 33.33);
+  return fract((p.x + p.y) * p.x);
 }
 
 void main() {
@@ -60,7 +62,7 @@ void main() {
   color /= 1.773;
 
   // Add film grain
-  float grainValue = grain(vTexCoord * 2.0, time);
+  float grainValue = grain(time);
   // Map grain from 0-1 to -0.5 to 0.5 for balanced noise
   grainValue = (grainValue - 0.5) * grainAmount;
 
