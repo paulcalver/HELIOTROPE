@@ -87,7 +87,9 @@ function setup() {
     });
   });
   capture.size(320, 240);
-  capture.hide();
+  // Use opacity instead of display:none — keeps element in layout so ml5 keypoints
+  // are returned in the correct 320x240 CSS coordinate space
+  capture.elt.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;width:320px;height:240px;';
 
   // Generate circles once at start
   fuzzyPoints();
@@ -214,32 +216,48 @@ async function analyzeFrame() {
   if (!capture) return;
   analyzing = true;
 
-  // Crop to the person using faceMesh bounds if a face is detected
+  // Crop tightly to just the face using eye landmarks as anchor
+  // Eyes give a reliable, stable measure of face size regardless of expression
   let cropX = 0, cropY = 0, cropW = 320, cropH = 240;
   if (faces.length > 0) {
-    const kp = faces[0].keypoints;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of kp) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    const fw = maxX - minX;
-    const fh = maxY - minY;
-    // Pad generously — especially downward to include clothing/upper body
-    cropX = Math.max(0,   minX - fw * 0.4);
-    cropY = Math.max(0,   minY - fh * 0.4);
-    cropW = Math.min(320, fw * 1.8);
-    cropH = Math.min(240, fh * 2.2); // taller crop to catch upper body
-    cropW = Math.min(cropW, 320 - cropX);
-    cropH = Math.min(cropH, 240 - cropY);
+    const kp      = faces[0].keypoints;
+    const lEye    = kp[LEFT_EYE];
+    const rEye    = kp[RIGHT_EYE];
+    const eyeMidX = (lEye.x + rEye.x) * 0.5;
+    const eyeMidY = (lEye.y + rEye.y) * 0.5;
+    const eyeDist = Math.abs(rEye.x - lEye.x); // reliable proxy for face width
+
+    // Anatomical estimates: face width ≈ 2.5× eye dist, face height ≈ 3× eye dist
+    const halfW = eyeDist * 1.4;  // half-width with small pad
+    const halfH = eyeDist * 1.6;  // half-height above eye midpoint
+    const below = eyeDist * 2.0;  // chin + just a touch of neck
+
+    const x1 = Math.max(0,   eyeMidX - halfW);
+    const y1 = Math.max(0,   eyeMidY - halfH);
+    const x2 = Math.min(320, eyeMidX + halfW);
+    const y2 = Math.min(240, eyeMidY + below);
+
+    cropX = x1; cropY = y1;
+    cropW = x2 - x1;
+    cropH = y2 - y1;
   }
+
+  // Scale crop from CSS/keypoint space (320x240) to the video's intrinsic resolution
+  // (camera may be 720p/1080p natively — drawImage uses intrinsic coords)
+  const nativeW = capture.elt.videoWidth  || 320;
+  const nativeH = capture.elt.videoHeight || 240;
+  const sx = nativeW / 320;
+  const sy = nativeH / 240;
 
   const tmp = document.createElement('canvas');
   tmp.width = cropW; tmp.height = cropH;
-  tmp.getContext('2d').drawImage(capture.elt, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  tmp.getContext('2d').drawImage(
+    capture.elt,
+    cropX * sx, cropY * sy, cropW * sx, cropH * sy, // source in native resolution
+    0, 0, cropW, cropH                               // destination in crop size
+  );
   const base64 = tmp.toDataURL('image/jpeg', 0.8).split(',')[1];
+  console.log(`Vision crop: ${Math.round(cropW)}×${Math.round(cropH)}px (native scale ${sx.toFixed(1)}×)`); // temp debug
 
   try {
     const res  = await fetch('/api/analyze', {
