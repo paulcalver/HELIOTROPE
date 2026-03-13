@@ -1,4 +1,4 @@
-# SUN
+# HELIOTROPE
 
 Every time you look at a screen, advertising infrastructure makes assumptions about who you are. Age range, income bracket, emotional state, consumer behaviour — inferred silently from your appearance and context, without consent or transparency. SUN makes that process visible.
 
