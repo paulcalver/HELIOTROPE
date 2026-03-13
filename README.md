@@ -8,6 +8,10 @@ The advertising labels are hidden at the sun's centre — too small to read from
 
 The labels themselves are modelled on real ad-tech taxonomy: confident, clinical, and occasionally wrong in the way that targeting systems are wrong — inferring "homeowner" from a collar, "frequent traveller" from a bag strap, "new parent" from tired eyes. The system has no mechanism for doubt. It outputs certainty by design, because uncertainty doesn't convert.
 
+![Sun_AI_Assumptions_00](https://github.com/user-attachments/assets/09659bcd-f7f3-435b-abe2-517522ec5dce)
+
+![Sun_AI_Assumptions_01](https://github.com/user-attachments/assets/5d3ee878-756a-4de4-8e72-bf026dd08cda)
+
 ---
 
 ## Tech Stack
