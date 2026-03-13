@@ -32,7 +32,8 @@ let wordTimer      = 0;
 const WORD_HOLD_MS = 3000; // ms each word stays before cycling
 let analyzing      = false;
 const ANALYZE_EVERY = 5000;
-let lastAnalyzeTime = -5000;
+let lastAnalyzeTime = 0;
+const VISION_USE_CROP = false; // true = cropped face region, false = full webcam frame
 
 // FaceMesh landmark indices
 const MOUTH_TOP    = 13;  // upper inner lip
@@ -125,8 +126,6 @@ function draw() {
   graphics.background(2);
 
   // Precompute once per frame — trig addition formula avoids 50k cos/sin calls
-  // cos(baseAngle + offset) = cosBase*cosOffset - sinBase*sinOffset
-  // sin(baseAngle + offset) = sinBase*cosOffset + cosBase*sinOffset
   const baseAngle = frameCount * 0.5;
   const cosBase = cos(baseAngle);
   const sinBase = sin(baseAngle);
@@ -216,48 +215,42 @@ async function analyzeFrame() {
   if (!capture) return;
   analyzing = true;
 
-  // Crop tightly to just the face using eye landmarks as anchor
-  // Eyes give a reliable, stable measure of face size regardless of expression
+  const nativeW = capture.elt.videoWidth  || 320;
+  const nativeH = capture.elt.videoHeight || 240;
+  const sx = nativeW / 320;
+  const sy = nativeH / 240;
+
   let cropX = 0, cropY = 0, cropW = 320, cropH = 240;
-  if (faces.length > 0) {
+  if (VISION_USE_CROP && faces.length > 0) {
     const kp      = faces[0].keypoints;
     const lEye    = kp[LEFT_EYE];
     const rEye    = kp[RIGHT_EYE];
     const eyeMidX = (lEye.x + rEye.x) * 0.5;
     const eyeMidY = (lEye.y + rEye.y) * 0.5;
-    const eyeDist = Math.abs(rEye.x - lEye.x); // reliable proxy for face width
+    const eyeDist = Math.abs(rEye.x - lEye.x);
 
-    // Anatomical estimates: face width ≈ 2.5× eye dist, face height ≈ 3× eye dist
-    const halfW = eyeDist * 1.4;  // half-width with small pad
-    const halfH = eyeDist * 1.6;  // half-height above eye midpoint
-    const below = eyeDist * 2.0;  // chin + just a touch of neck
+    const halfW = eyeDist * 1.4;
+    const halfH = eyeDist * 1.6;
 
     const x1 = Math.max(0,   eyeMidX - halfW);
     const y1 = Math.max(0,   eyeMidY - halfH);
     const x2 = Math.min(320, eyeMidX + halfW);
-    const y2 = Math.min(240, eyeMidY + below);
+    const y2 = 240;
 
     cropX = x1; cropY = y1;
     cropW = x2 - x1;
     cropH = y2 - y1;
   }
 
-  // Scale crop from CSS/keypoint space (320x240) to the video's intrinsic resolution
-  // (camera may be 720p/1080p natively — drawImage uses intrinsic coords)
-  const nativeW = capture.elt.videoWidth  || 320;
-  const nativeH = capture.elt.videoHeight || 240;
-  const sx = nativeW / 320;
-  const sy = nativeH / 240;
-
   const tmp = document.createElement('canvas');
   tmp.width = cropW; tmp.height = cropH;
   tmp.getContext('2d').drawImage(
     capture.elt,
-    cropX * sx, cropY * sy, cropW * sx, cropH * sy, // source in native resolution
-    0, 0, cropW, cropH                               // destination in crop size
+    cropX * sx, cropY * sy, cropW * sx, cropH * sy,
+    0, 0, cropW, cropH
   );
   const base64 = tmp.toDataURL('image/jpeg', 0.8).split(',')[1];
-  console.log(`Vision crop: ${Math.round(cropW)}×${Math.round(cropH)}px (native scale ${sx.toFixed(1)}×)`); // temp debug
+  console.log(`Vision ${VISION_USE_CROP ? 'crop' : 'full'}: ${Math.round(cropW)}×${Math.round(cropH)}px`);
 
   try {
     const res  = await fetch('/api/analyze', {

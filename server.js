@@ -1,9 +1,16 @@
 require('dotenv').config();
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 
 app.use(express.static('public'));
 app.use(express.json({ limit: '5mb' }));
+
+// Debug: save cropped frames sent to Vision API as JPEGs in debug_frames/
+const SAVE_DEBUG_FRAMES = false;
+const DEBUG_DIR = path.join(__dirname, 'debug_frames');
+if (SAVE_DEBUG_FRAMES && !fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR);
 
 const VISION_URL = `https://vision.googleapis.com/v1/images:annotate?key=${process.env.GOOGLE_VISION_API_KEY}`;
 
@@ -18,13 +25,19 @@ app.post('/api/analyze', async (req, res) => {
         requests: [{
           image: { content: image },
           features: [
-            { type: 'LABEL_DETECTION',  maxResults: 8 },
-            { type: 'FACE_DETECTION',   maxResults: 1 },
-            { type: 'WEB_DETECTION',    maxResults: 5 },
+            { type: 'LABEL_DETECTION', maxResults: 5 },
+            { type: 'FACE_DETECTION', maxResults: 5 },
+            { type: 'WEB_DETECTION', maxResults: 20 },
           ]
         }]
       })
     });
+
+    if (SAVE_DEBUG_FRAMES) {
+      const filename = `frame_${Date.now()}.jpg`;
+      fs.writeFileSync(path.join(DEBUG_DIR, filename), Buffer.from(image, 'base64'));
+      console.log(`Saved debug frame: ${filename}`);
+    }
 
     const data = await response.json();
     const r = data.responses?.[0];
@@ -32,35 +45,27 @@ app.post('/api/analyze', async (req, res) => {
 
     // Anatomy/generic face terms — not interesting for the advertising inference concept
     const BLOCKLIST = new Set([
-      'face', 'facial hair', 'hair', 'chin', 'cheek', 'forehead', 'nose', 'lip',
-      'eyebrow', 'eyelash', 'eye', 'ear', 'neck', 'beard', 'moustache', 'skin',
-      'head', 'jaw', 'mouth', 'tooth', 'teeth', 'wrinkle', 'person', 'human',
-      'man', 'woman', 'people', 'photography', 'photo', 'stock photography',
-      'portrait', 'selfie', 'close-up', 'black and white',
+      'black and white'
     ]);
 
-    const words = [];
+    // const BLOCKLIST = new Set([
+    //   'face', 'facial hair', 'hair', 'chin', 'cheek', 'forehead', 'nose', 'lip',
+    //   'eyebrow', 'eyelash', 'eye', 'ear', 'neck', 'beard', 'moustache', 'skin',
+    //   'head', 'jaw', 'mouth', 'tooth', 'teeth', 'wrinkle', 'person', 'human',
+    //   'man', 'woman', 'people', 'photography', 'photo', 'stock photography',
+    //   'portrait', 'selfie', 'close-up', 'black and white',
+    // ]);
 
-    // Web entities first — brand/topic associations are the point of the piece
-    r.webDetection?.webEntities
-      ?.filter(e => e.description && !BLOCKLIST.has(e.description.toLowerCase()))
-      .forEach(e => words.push(e.description));
+    console.log(`[Vision] full response keys:`, Object.keys(r));
+    console.log(`[Vision] full r:`, JSON.stringify(r, null, 2));
+    console.log(`[Vision] raw webEntities:`, r.webDetection?.webEntities?.map(e => `${e.description} (${e.score?.toFixed(2)})`));
+    const words = (r.webDetection?.webEntities
+      ?.filter(e => e.description && e.score > 0 && !BLOCKLIST.has(e.description.toLowerCase()))
+      .map(e => e.description) ?? [])
+      .sort(() => Math.random() - 0.5);
 
-    // Inferred emotions from face analysis
-    if (r.faceAnnotations?.[0]) {
-      const face = r.faceAnnotations[0];
-      for (const emotion of ['joy', 'sorrow', 'anger', 'surprise']) {
-        const val = face[`${emotion}Likelihood`];
-        if (val === 'LIKELY' || val === 'VERY_LIKELY') words.push(emotion);
-      }
-    }
-
-    // Scene/context labels — filtered to remove anatomy
-    r.labelAnnotations
-      ?.filter(l => !BLOCKLIST.has(l.description.toLowerCase()))
-      .forEach(l => words.push(l.description));
-
-    res.json({ words: words.slice(0, 12) }); // cap to avoid word soup
+    console.log(`[Vision] ${new Date().toLocaleTimeString()} — ${words.length} entities:`, words);
+    res.json({ words: words.slice(0, 30) }); // cap to avoid word soup
 
   } catch (err) {
     console.error('Vision API error:', err);
