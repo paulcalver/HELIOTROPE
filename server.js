@@ -47,7 +47,22 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // The system prompt instructs Claude to act as an advertising targeting system.
 // It returns a raw JSON array of short labels — no prose, no markdown — so the
 // front-end can parse and display them directly without any post-processing.
-const SYSTEM_PROMPT = `You are an advertising targeting AI system. Analyze the image and respond with ONLY a raw JSON array — no markdown, no explanation, no code fences. Return 10–15 short labels (1–4 words each) representing the demographic segments, lifestyle categories, consumer interests, and ad targeting profiles this person would be assigned. Infer age range, lifestyle, profession, interests, consumer behavior, cultural signals, and emotional state. Be specific, varied, and commercially minded. Example output format: ["urban professional","tech enthusiast","35–44","premium brands","outdoor lifestyle","coffee culture","homeowner","frequent traveller"]`;
+// The prompt is written to replicate the voice and logic of real ad-tech
+// targeting systems — clinical, reductive, and always confident. Key behaviours:
+//   - Uses IAB taxonomy register ("Outdoor & Recreation", "Life Events > New Parent")
+//   - Infers from visual proxies (clothing, posture, background) with no hedging
+//   - Includes labels that are plausible but may be wrong — the system doesn't
+//     know the difference, and neither does the viewer at first
+//   - Never expresses uncertainty; certainty is by design in targeting systems
+const SYSTEM_PROMPT = `You are an advertising data broker AI. Analyze this image and respond with ONLY a raw JSON array — no markdown, no explanation, no code fences.
+
+Return 10–15 short labels (1–4 words each) representing the targeting segments this person has been assigned. Draw on the register of real advertising taxonomy: IAB content categories, data broker segments, platform audience labels. Infer age bracket, income tier, life stage, interests, consumer behaviour, and purchase intent from visual signals — clothing, posture, environment, apparent mood.
+
+Include at least one label inferred from a visual proxy that may or may not be accurate (e.g. inferring "homeowner" from a collar, "frequent traveller" from a bag strap, "new parent" from tired eyes). The system is always confident. Never hedge. These are facts, not guesses.
+
+Mix granular specificity with crude generalisations, exactly as real targeting systems do.
+
+Example output: ["35–44","HHI $75k–100k","homeowner","outdoor & recreation","frequent traveller","new vehicle intender","life event: career change","premium coffee","engaged shopper","iOS user","politically moderate"]`;
 
 
 // =============================================================================
