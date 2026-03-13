@@ -32,7 +32,7 @@ let wordTimer      = 0;
 const WORD_HOLD_MS = 3000; // ms each word stays before cycling
 let analyzing      = false;
 const ANALYZE_EVERY = 5000;
-let lastAnalyzeTime = 0;
+let lastAnalyzeTime = -4500; // fires ~500ms after first face detected
 const VISION_USE_CROP = false; // true = cropped face region, false = full webcam frame
 
 // FaceMesh landmark indices
@@ -101,8 +101,9 @@ function draw() {
   // Update grain animation (continuous, smooth)
   grainTime += grainSpeed;
 
-  // Trigger Vision API analysis on interval
-  if (!analyzing && millis() - lastAnalyzeTime > ANALYZE_EVERY) {
+  // Trigger Claude analysis on interval — only once FaceMesh detects a face
+  // (guarantees camera is live, preventing black first frames)
+  if (!analyzing && faces.length > 0 && millis() - lastAnalyzeTime > ANALYZE_EVERY) {
     lastAnalyzeTime = millis();
     analyzeFrame();
   }
