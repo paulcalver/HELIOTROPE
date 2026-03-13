@@ -40,16 +40,22 @@ app.post('/api/analyze', async (req, res) => {
       }]
     });
 
-    const text = response.content.find(b => b.type === 'text')?.text ?? '[]';
-    console.log(`[Claude] raw response: ${text}`);
+    const raw = response.content.find(b => b.type === 'text')?.text ?? '';
+    console.log(`[Claude] raw response: ${raw}`);
+
+    // Strip markdown code fences if present, then extract the JSON array
+    const stripped = raw.replace(/```[a-z]*\n?/gi, '').trim();
+    const match = stripped.match(/\[[\s\S]*\]/);
+    const jsonStr = match ? match[0] : '[]';
 
     let words = [];
     try {
-      words = JSON.parse(text);
+      words = JSON.parse(jsonStr);
       if (!Array.isArray(words)) words = [];
+      words = words.filter(w => typeof w === 'string' && w.trim());
     } catch {
-      // If not valid JSON, split by newline/comma as fallback
-      words = text.split(/[\n,]+/).map(w => w.replace(/["\[\]]/g, '').trim()).filter(Boolean);
+      console.warn('[Claude] JSON parse failed, falling back to text split');
+      words = stripped.split(/[\n,]+/).map(w => w.replace(/["\[\]]/g, '').trim()).filter(Boolean);
     }
 
     // Shuffle
