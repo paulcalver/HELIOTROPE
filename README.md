@@ -108,3 +108,7 @@ In `server.js`:
 | Variable | Default | Description |
 |---|---|---|
 | `SAVE_DEBUG_FRAMES` | `false` | Save each frame sent to Claude as a JPEG in `debug_frames/` |
+
+## Author
+
+**Paul Calver** — pcalv001@gold.ac.uk
